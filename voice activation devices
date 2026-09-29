@@ -1,0 +1,156 @@
+#include <Arduino.h>
+#include "driver/i2s_std.h"
+
+#define I2S_SCK GPIO_NUM_12
+#define I2S_WS  GPIO_NUM_11
+#define I2S_SD  GPIO_NUM_10
+
+#define SAMPLE_RATE 16000
+#define BUFFER_SIZE 256
+
+i2s_chan_handle_t rx_handle;
+
+void setup()
+{
+  Serial.begin(115200);
+  delay(2000);
+
+  Serial.println();
+  Serial.println("==============================");
+  Serial.println(" INMP441 RIGHT CHANNEL TEST");
+  Serial.println("==============================");
+  Serial.println("SCK = GPIO 12");
+  Serial.println("WS  = GPIO 11");
+  Serial.println("SD  = GPIO 10");
+  Serial.println("L/R = 3.3V");
+  Serial.println();
+
+  // Create I2S RX channel
+  i2s_chan_config_t chan_cfg =
+  {
+    .id = I2S_NUM_0,
+    .role = I2S_ROLE_MASTER,
+    .dma_desc_num = 4,
+    .dma_frame_num = BUFFER_SIZE,
+    .auto_clear = true
+  };
+
+  esp_err_t result = i2s_new_channel(
+    &chan_cfg,
+    NULL,
+    &rx_handle
+  );
+
+  if (result != ESP_OK)
+  {
+    Serial.println("ERROR: I2S channel creation failed!");
+    return;
+  }
+
+  // I2S configuration
+  i2s_std_config_t std_cfg =
+  {
+    .clk_cfg =
+    {
+      .sample_rate_hz = SAMPLE_RATE,
+      .clk_src = I2S_CLK_SRC_DEFAULT,
+      .mclk_multiple = I2S_MCLK_MULTIPLE_256
+    },
+
+    .slot_cfg =
+    {
+      .data_bit_width = I2S_DATA_BIT_WIDTH_32BIT,
+      .slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT,
+      .slot_mode = I2S_SLOT_MODE_MONO,
+
+      // RIGHT channel
+      .slot_mask = I2S_STD_SLOT_RIGHT
+    },
+
+    .gpio_cfg =
+    {
+      .mclk = I2S_GPIO_UNUSED,
+      .bclk = I2S_SCK,
+      .ws = I2S_WS,
+      .dout = I2S_GPIO_UNUSED,
+      .din = I2S_SD,
+
+      .invert_flags =
+      {
+        .mclk_inv = false,
+        .bclk_inv = false,
+        .ws_inv = false
+      }
+    }
+  };
+
+  result = i2s_channel_init_std_mode(
+    rx_handle,
+    &std_cfg
+  );
+
+  if (result != ESP_OK)
+  {
+    Serial.println("ERROR: I2S initialization failed!");
+    return;
+  }
+
+  result = i2s_channel_enable(rx_handle);
+
+  if (result != ESP_OK)
+  {
+    Serial.println("ERROR: I2S enable failed!");
+    return;
+  }
+
+  Serial.println("I2S started successfully.");
+  Serial.println("Speak or clap near the INMP441.");
+  Serial.println();
+}
+
+void loop()
+{
+  int32_t samples[BUFFER_SIZE];
+
+  size_t bytes_read = 0;
+
+  esp_err_t result = i2s_channel_read(
+    rx_handle,
+    samples,
+    sizeof(samples),
+    &bytes_read,
+    1000
+  );
+
+  if (result == ESP_OK)
+  {
+    int32_t minValue = 2147483647;
+    int32_t maxValue = -2147483647;
+
+    for (int i = 0; i < BUFFER_SIZE; i++)
+    {
+      if (samples[i] < minValue)
+      {
+        minValue = samples[i];
+      }
+
+      if (samples[i] > maxValue)
+      {
+        maxValue = samples[i];
+      }
+    }
+
+    Serial.print("Min: ");
+    Serial.print(minValue);
+
+    Serial.print("    Max: ");
+    Serial.println(maxValue);
+  }
+  else
+  {
+    Serial.println("I2S READ ERROR");
+  }
+
+  // One reading every second
+  delay(1000);
+}
